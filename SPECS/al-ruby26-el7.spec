@@ -102,8 +102,6 @@ if [ $1 == 0 ]; then
   done
 fi
 
-%preun
-
 %clean
 if [ -d %{buildroot} ] ; then
   rm -rf %{buildroot}/*
