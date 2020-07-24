@@ -17,6 +17,13 @@ Summary:    AlertLogic al-ruby26-el7
 License:    AlertLogic (c). All rights reserved.
 BuildArch:  noarch
 Requires:   al-s3repo
+Requires(pre):   rh-ruby26-ruby
+Requires(pre):   rh-ruby26-ruby-devel
+Requires(pre):   rh-ruby26-rubygems-devel
+Requires(pre):   gcc
+Requires(pre):   make
+Requires(pre):   libffi-devel
+Requires(pre):   rpm-build
 
 %description
 Install and configure al-ruby26-el7
@@ -33,36 +40,30 @@ cat > %{name}.sh <<'EOF'
 NAME=%{name}
 VERSION=%{version}
 
-# environment override variables
-BOOTSTRAP=${BOOTSTRAP:-"false"}
-BOOTSTRAPCFN=${BOOTSTRAPCFN:-"false"}
-BOOTSTRAPLATE=${BOOTSTRAPLATE:-"false"}
-MY_SECRET=${MY_SECRET:-""}
-
 # install/update logic
 if [ "${1}" == 1 ]; then # if install
-  # save a secret from the environment
-  if [ ! -z "${MY_SECRET}" ]; then
-    sed -i "s/^MY_SECRET=.*$/MY_SECRET=${MY_SECRET}/" /etc/default/al-ruby26-el7
+  for arg in $(ls /opt/rh/rh-ruby26/root/bin/*); do
+    bin=$(basename $arg)
+    ln -sf $arg /usr/bin/${bin}26
+    if [ ! -f /usr/bin/${bin} ]; then
+      ln -s $arg /usr/bin/${bin}
+    fi
+  done
+  # add man pages
+  if ! egrep -q "^\s*MANDATORY_MANPATH\s*/opt/rh/rh-ruby26/root/usr/local/share/man\s*$" /etc/man_db.conf; then
+    echo "MANDATORY_MANPATH                       /opt/rh/rh-ruby26/root/usr/local/share/man" >> /etc/man_db.conf
   fi
-  
-  # if bootstrap, run on next boot, else run now
-  if [ $BOOTSTRAPLATE == "true" ]; then
-    echo "running config 3 minutes after next boot" 1>&2
-    ln -s /usr/local/sbin/al-ruby26-el7-config.sh /etc/rc.runoncelate/
-  elif [ $BOOTSTRAPCFN == "true" ]; then
-    echo "running config when called by cfn init" 1>&2
-    ln -s /usr/local/sbin/al-ruby26-el7-config.sh /etc/rc.runoncecfn/
-  elif [ $BOOTSTRAP == "true" ]; then
-    echo "running config after next boot" 1>&2
-    ln -s /usr/local/sbin/al-ruby26-el7-config.sh /etc/rc.runonce/
-  else
-    echo "running config now" 1>&2
-    /usr/local/sbin/al-ruby26-el7-config.sh
+  if ! egrep -q "^\s*MANDATORY_MANPATH\s*/opt/rh/rh-ruby26/root/usr/share/man\s*$" /etc/man_db.conf; then
+    echo "MANDATORY_MANPATH                       /opt/rh/rh-ruby26/root/usr/share/man" >> /etc/man_db.conf
   fi
-
+  # update libraries
+  ldconfig
+  # install gems
+  /usr/local/sbin/al-ruby26-gem-install.sh || echo "Could not download gems! Please run /usr/local/sbin/al-ruby26-gem-install.sh" 1>&2
   echo "script installed and ran sucessfully" 1>&2
 elif [ "${1}" == 2 ]; then # if update
+  # update libraries
+  ldconfig
   echo "script updated and ran sucessfully" 1>&2
 fi
 
@@ -77,21 +78,31 @@ install -m 755 %{name}.sh %{buildroot}/usr/local/sbin/%{name}.sh
 %files
 /usr/local/sbin/*
 /usr/local/share/%{name}/*
-%config(noreplace) /etc/default/*
+%config(noreplace) /etc/ld.so.conf.d/*
 
 %pre
-if [ "${1}" == 1 ]; then # if install
-  echo "i run before rpm is installed" 1>&2
-elif [ "${1}" == 2 ]; then # if update
-  echo "i run before rpm is updated" 1>&2
-fi
 
 %post
 /usr/local/sbin/%{name}.sh $1
 
 %preun
-# turn things off before uninstalling
-echo "i run before rpm is uninstalled" 1>&2
+if [ $1 == 0 ]; then
+  # remove man pages
+  sed -i '/^\s*MANDATORY_MANPATH\s*\/opt\/rh\/rh-ruby26\/root\/usr\/local\/share\/man\s*$/d' /etc/man_db.conf
+  sed -i '/^\s*MANDATORY_MANPATH\s*\/opt\/rh\/rh-ruby26\/root\/usr\/share\/man\s*$/d' /etc/man_db.conf
+  # remove symlinks
+  for arg in $(ls /opt/rh/rh-ruby26/root/bin/*); do
+    bin=$(basename $arg)
+    if [ "$(readlink /usr/bin/${bin}26)" == "${arg}" ]; then
+      rm -f /usr/bin/${bin}26
+    fi
+    if [ "$(readlink /usr/bin/${bin})" == "${arg}" ]; then
+        rm -f /usr/bin/${bin}
+    fi
+  done
+fi
+
+%preun
 
 %clean
 if [ -d %{buildroot} ] ; then
